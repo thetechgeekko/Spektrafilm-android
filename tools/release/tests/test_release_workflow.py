@@ -687,11 +687,13 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         candidate = job_block("build-release-candidate")
         protected = job_block("sign-and-publish")
         self.assertIn(
-            "needs: [resolve-release, qualify-libraw, qualify-native-safety]",
+            "needs: [resolve-release, check-publish-token, qualify-libraw, "
+            "qualify-native-safety, qualify-parity-o2, qualify-parity-shipping]",
             candidate,
         )
         self.assertIn(
-            "needs: [resolve-release, qualify-libraw, qualify-native-safety, "
+            "needs: [resolve-release, check-publish-token, qualify-libraw, "
+            "qualify-native-safety, qualify-parity-o2, qualify-parity-shipping, "
             "build-release-candidate]",
             protected,
         )
@@ -699,8 +701,8 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         candidate_steps = (
             "Reject stale LibRaw qualification from a prior run attempt",
             "Reject stale native safety qualification from a prior run attempt",
-            "Run O2 exact engine parity",
-            "Run shipping-flags exact engine parity",
+            "Reject stale O2 exact engine parity qualification from a prior run attempt",
+            "Reject stale shipping-flags exact engine parity qualification from a prior run attempt",
             "Run release JVM tests and lint",
             "Assemble unsigned minified release candidate",
             "Assemble exact-candidate instrumentation APK",
@@ -733,6 +735,59 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
             "cmp signed/app-release.apk build/device-smoke/installed-base.apk",
         ):
             self.assertIn(marker, protected)
+
+    def test_both_parity_legs_are_run_attempt_bound_qualifiers(self) -> None:
+        candidate = job_block("build-release-candidate")
+        self.assertNotIn("run_engine_parity.sh", candidate)
+        for job, extra, marker in (
+            ("qualify-parity-o2", None, "o2-exact-engine-parity"),
+            (
+                "qualify-parity-shipping",
+                "SPK_PARITY_EXTRA_FLAGS: -O3 -ffast-math -fno-finite-math-only",
+                "shipping-exact-engine-parity",
+            ),
+        ):
+            qualifier = job_block(job)
+            self.assertIn("needs: resolve-release", qualifier)
+            self.assertIn("ref: ${{ needs.resolve-release.outputs.sha }}", qualifier)
+            self.assertEqual(1, qualifier.count("bash tools/parity/run_engine_parity.sh"))
+            if extra is None:
+                self.assertNotIn("SPK_PARITY_EXTRA_FLAGS", qualifier)
+            else:
+                self.assertIn(extra, qualifier)
+            for output in ("run_id", "run_attempt", "source_sha"):
+                self.assertIn(
+                    f"{output}: ${{{{ steps.qualification-receipt.outputs.{output} }}}}",
+                    qualifier,
+                )
+            for bound in (
+                f"${{{{ needs.{job}.outputs.run_id }}}}",
+                f"${{{{ needs.{job}.outputs.run_attempt }}}}",
+                f"${{{{ needs.{job}.outputs.source_sha }}}}",
+            ):
+                self.assertEqual(1, candidate.count(bound), bound)
+            stage = step_block(candidate, "Stage hash-bound candidate and compliance materials")
+            self.assertIn(f"build/release-gates/{marker}", stage)
+        self.assertIn('[ "$QUALIFIED_RUN_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]', candidate)
+
+    def test_publishing_token_is_proven_before_the_candidate_build(self) -> None:
+        # v1.0.0 run 42975413550 signed and smoke-tested the candidate, then
+        # failed the final upload with HTTP 401 on an expired token.
+        check = job_block("check-publish-token")
+        self.assertIn("environment: release-signing", check)
+        self.assertIn("needs: resolve-release", check)
+        self.assertIn("bash tools/release/check_release_token.sh", check)
+        self.assertEqual(1, check.count("secrets.RELEASE_GITHUB_TOKEN"))
+        self.assertNotIn("SIGNING_", check)
+        self.assertNotIn("contents: write", check)
+        self.assertIn("persist-credentials: false", check)
+        self.assertIn("check-publish-token", job_block("build-release-candidate"))
+        manual = (ROOT / ".github/workflows/release-token-check.yml").read_text(encoding="utf-8")
+        self.assertIn("bash tools/release/check_release_token.sh", manual)
+        script = (ROOT / "tools/release/check_release_token.sh").read_text(encoding="utf-8")
+        for call in ("gh api user", "/immutable-releases", "-F draft=true", "-X DELETE"):
+            self.assertIn(call, script)
+        self.assertIn("set -euo pipefail", script)
 
     def test_libraw_qualification_cannot_be_reused_across_run_attempts(self) -> None:
         qualifier = job_block("qualify-libraw")

@@ -71,7 +71,7 @@ containment, bounded JSON/NPY parsing, the synchronized asset-backed engine C
 cancellation race, and PNG/TIFF writer gates on
 the exact tag commit before candidate build/signing. It makes no actual-JNI ASan
 claim.
-That job reruns the exact engine suite at both `-O2` and the shipping flags, release JVM tests for the app and all four native-backed modules, and release lint,
+Two parallel qualifier jobs rerun the exact engine suite at `-O2` and at the shipping flags (each emits a run ID/attempt/source receipt the candidate job checks); the candidate job runs release JVM tests for the app and all four native-backed modules, and release lint,
 R8/JNI checks, and 16 KiB ZIP/ELF checks. A fixed gate attestation binds those
 results, the exact commit/version, run ID/attempt, and all three APK hashes. The
 service artifact digest and checked manifest bind that attestation together with
@@ -103,7 +103,10 @@ releases remain drafts until the exact numeric release/asset IDs, complete remot
 inventory, and downloaded bytes have been verified and the tag has been checked
 again. Existing releases pass only when already immutable and byte-identical.
 Recovery may delete only the run-owned draft; it never deletes a published or
-foreign release. Publication uses the protected Environment secret
+foreign release. The first protected job, `check-publish-token`, runs
+`tools/release/check_release_token.sh` before the candidate build so an expired
+or under-scoped token fails in a minute (it needs its own `release-signing`
+approval). Publication uses the protected Environment secret
 `RELEASE_GITHUB_TOKEN`, a fine-grained PAT or GitHub App token with repository
 Administration (read) and Contents (write); a missing/under-scoped token fails
 closed. A successful run publishes the APK, both SPDX documents, LibRaw
@@ -126,10 +129,12 @@ R8 keep-rule surfaces only at runtime — download this artifact and smoke-test 
 ## `release-token-check.yml` (added 2026-09-15)
 
 Manual `workflow_dispatch` only. Runs under the `release-signing` Environment and exercises
-`RELEASE_GITHUB_TOKEN` exactly the way `tools/release/github_release.py` does — `GET
+`RELEASE_GITHUB_TOKEN` through `tools/release/check_release_token.sh` (the same script
+`release.yml` runs first) exactly the way `tools/release/github_release.py` does — `GET
 /immutable-releases` (Administration read), create a **draft** release against the current
 commit (Contents write + Workflows write, because the commit touches `.github/workflows/`), then
 delete it. Finishes in under a minute. Purpose: `release.yml` only reaches that token ~50 minutes
 in, and `34882197355/1` failed there with `HTTP 403: Resource not accessible by personal access
-token` after every other gate had passed. Dispatch it after rotating the token and before pushing
+token` after every other gate had passed, and v1.0.0 run `42975413550` failed there with
+`HTTP 401: Bad credentials` (expired token). Dispatch it after rotating the token and before pushing
 a `v*` tag.

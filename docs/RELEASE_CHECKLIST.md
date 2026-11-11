@@ -99,8 +99,12 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
    CMake `3.22.1`, build-tools `36.0.0`**, and checks that the tag exactly matches
    the literal app `versionName`.
 4. Runs the engine parity suite at `-O2` and at the shipping
-   `-O3 -ffast-math -fno-finite-math-only` flags, then release JVM tests,
-   LibRaw JVM tests, and `:app:lintRelease`.
+   `-O3 -ffast-math -fno-finite-math-only` flags in two parallel qualifier jobs
+   (run ID/attempt/source receipts, like LibRaw), then release JVM tests,
+   LibRaw JVM tests, and `:app:lintRelease` in the candidate job. A first
+   protected job, `check-publish-token`, proves `RELEASE_GITHUB_TOKEN` before any
+   of this, so that Environment is approved twice per release: once at the start
+   (token check, under a minute) and once for signing.
 5. Builds an **unsigned**, R8-minified app APK and a release-targeted custom
    instrumentation APK. It verifies package/version/runner identity, R8's
    name-based JNI members, the AndroidTest APK's exact target-DEX ABI (classes,

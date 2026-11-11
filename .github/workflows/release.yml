@@ -217,14 +217,109 @@ jobs:
           echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           echo "source_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
 
+  # First protected job. The publisher's token lives only in release-signing, so
+  # proving it needs that Environment's approval; doing it here, before the
+  # hour of gates, turns an expired token into a one-minute failure instead of
+  # a failure at the final upload after signing (v1.0.0 run 42975413550).
+  check-publish-token:
+    name: Check release publishing token before building
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release-signing
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.sha }}
+          persist-credentials: false
+
+      - name: Exercise the publishing token
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ needs.resolve-release.outputs.sha }}
+          CHECK_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash tools/release/check_release_token.sh
+
+  qualify-parity-o2:
+    name: Qualify O2 exact engine parity
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    # ~22-36 min per leg with the 51-case table (release runs 42938059021 and
+    # 42975413550). The legs used to run back to back inside the candidate
+    # build, which made that job ~90 min and hit its old 60-minute cap on run
+    # 42925210277. As separate jobs they overlap each other and the qualifiers.
+    timeout-minutes: 75
+    outputs:
+      run_id: ${{ steps.qualification-receipt.outputs.run_id }}
+      run_attempt: ${{ steps.qualification-receipt.outputs.run_attempt }}
+      source_sha: ${{ steps.qualification-receipt.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.sha }}
+          persist-credentials: false
+
+      - name: Run O2 exact engine parity
+        run: |
+          set -euo pipefail
+          bash tools/parity/run_engine_parity.sh build/release-parity-o2
+
+      - name: Emit current-attempt O2 parity qualification receipt
+        id: qualification-receipt
+        env:
+          RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+  qualify-parity-shipping:
+    name: Qualify shipping-flags exact engine parity
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    # ~22-36 min per leg with the 51-case table (release runs 42938059021 and
+    # 42975413550). The legs used to run back to back inside the candidate
+    # build, which made that job ~90 min and hit its old 60-minute cap on run
+    # 42925210277. As separate jobs they overlap each other and the qualifiers.
+    timeout-minutes: 75
+    outputs:
+      run_id: ${{ steps.qualification-receipt.outputs.run_id }}
+      run_attempt: ${{ steps.qualification-receipt.outputs.run_attempt }}
+      source_sha: ${{ steps.qualification-receipt.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.sha }}
+          persist-credentials: false
+
+      - name: Run shipping-flags exact engine parity
+        env:
+          SPK_PARITY_EXTRA_FLAGS: -O3 -ffast-math -fno-finite-math-only
+        run: |
+          set -euo pipefail
+          bash tools/parity/run_engine_parity.sh build/release-parity-shipping
+
+      - name: Emit current-attempt shipping-flags parity qualification receipt
+        id: qualification-receipt
+        env:
+          RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
   build-release-candidate:
     name: Build unsigned release candidate
-    needs: [resolve-release, qualify-libraw, qualify-native-safety]
+    needs: [resolve-release, check-publish-token, qualify-libraw, qualify-native-safety, qualify-parity-o2, qualify-parity-shipping]
     runs-on: ubuntu-latest
-    # Both exact parity legs run here back to back. With the 51-case table the
-    # shipping-flags leg alone takes ~70 min (ci.yml run 42916305170), so the
-    # old 60-minute cap cancelled the v1.0.0 candidate (run 42925210277).
-    timeout-minutes: 180
+    # Parity runs in its own jobs now; this job is JVM tests, lint, assembly
+    # and staging (~15-20 min on run 42975413550).
+    timeout-minutes: 60
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
       artifact_digest: ${{ steps.candidate-upload.outputs.artifact-digest }}
@@ -261,6 +356,36 @@ jobs:
              [ "$QUALIFIED_RUN_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ] || \
              [ "$QUALIFIED_SOURCE_SHA" != "$RELEASE_SHA" ]; then
             echo "::error::Native safety qualification is stale; use Re-run all jobs"
+            exit 1
+          fi
+
+      - name: Reject stale O2 exact engine parity qualification from a prior run attempt
+        env:
+          QUALIFIED_RUN_ID: ${{ needs.qualify-parity-o2.outputs.run_id }}
+          QUALIFIED_RUN_ATTEMPT: ${{ needs.qualify-parity-o2.outputs.run_attempt }}
+          QUALIFIED_SOURCE_SHA: ${{ needs.qualify-parity-o2.outputs.source_sha }}
+          RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$QUALIFIED_RUN_ID" != "$GITHUB_RUN_ID" ] || \
+             [ "$QUALIFIED_RUN_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ] || \
+             [ "$QUALIFIED_SOURCE_SHA" != "$RELEASE_SHA" ]; then
+            echo "::error::O2 exact engine parity qualification is stale; use Re-run all jobs"
+            exit 1
+          fi
+
+      - name: Reject stale shipping-flags exact engine parity qualification from a prior run attempt
+        env:
+          QUALIFIED_RUN_ID: ${{ needs.qualify-parity-shipping.outputs.run_id }}
+          QUALIFIED_RUN_ATTEMPT: ${{ needs.qualify-parity-shipping.outputs.run_attempt }}
+          QUALIFIED_SOURCE_SHA: ${{ needs.qualify-parity-shipping.outputs.source_sha }}
+          RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$QUALIFIED_RUN_ID" != "$GITHUB_RUN_ID" ] || \
+             [ "$QUALIFIED_RUN_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ] || \
+             [ "$QUALIFIED_SOURCE_SHA" != "$RELEASE_SHA" ]; then
+            echo "::error::shipping-flags exact engine parity qualification is stale; use Re-run all jobs"
             exit 1
           fi
 
@@ -347,24 +472,10 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tools/release/tests -p 'test_*.py'
 
-      - name: Run O2 exact engine parity
-        run: |
-          set -euo pipefail
-          mkdir -p build/release-gates
-          bash tools/parity/run_engine_parity.sh build/release-parity-o2
-          printf 'PASS\n' > build/release-gates/o2-exact-engine-parity
-
-      - name: Run shipping-flags exact engine parity
-        env:
-          SPK_PARITY_EXTRA_FLAGS: -O3 -ffast-math -fno-finite-math-only
-        run: |
-          set -euo pipefail
-          bash tools/parity/run_engine_parity.sh build/release-parity-shipping
-          printf 'PASS\n' > build/release-gates/shipping-exact-engine-parity
-
       - name: Run release JVM tests and lint
         run: |
           set -euo pipefail
+          mkdir -p build/release-gates
           ./gradlew \
             :app:testReleaseUnitTest \
             :lib:libraw:testReleaseUnitTest \
@@ -594,6 +705,10 @@ jobs:
 
           printf 'PASS\n' > build/release-gates/libraw-qualification
           printf 'PASS\n' > build/release-gates/native-safety-sanitizers
+          # Receipts from qualify-parity-o2/-shipping were checked against this
+          # run attempt and source SHA at the top of this job.
+          printf 'PASS\n' > build/release-gates/o2-exact-engine-parity
+          printf 'PASS\n' > build/release-gates/shipping-exact-engine-parity
           python3 tools/release/gate_attestation.py create \
             --version "$VERSION" \
             --source-sha "$RELEASE_SHA" \
@@ -629,7 +744,7 @@ jobs:
 
   sign-and-publish:
     name: Sign, qualify, and publish the exact candidate
-    needs: [resolve-release, qualify-libraw, qualify-native-safety, build-release-candidate]
+    needs: [resolve-release, check-publish-token, qualify-libraw, qualify-native-safety, qualify-parity-o2, qualify-parity-shipping, build-release-candidate]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: release-signing
