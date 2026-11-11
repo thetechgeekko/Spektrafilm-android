@@ -739,10 +739,8 @@ jobs:
             tools/compliance/tests/test_libraw_bundle.py \
             tools/release/app_spdx.py \
             tools/release/gate_attestation.py \
-            tools/release/github_release.py \
             tools/release/tests/test_app_spdx.py \
             tools/release/tests/test_gate_attestation.py \
-            tools/release/tests/test_github_release.py \
             tools/release/tests/test_release_workflow.py
 
       - name: Test LibRaw compliance bundle tooling

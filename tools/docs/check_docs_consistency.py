@@ -492,7 +492,9 @@ def _parity_flag_errors(ci: str, release: str, shipping_flags: str) -> list[str]
             flags=re.MULTILINE,
         )
     )
-    if release_flags != {shipping_flags}:
+    # release.yml takes parity from the required green ci.yml run and may set
+    # no flags at all; any flags it does set must still be the shipping ones.
+    if release_flags and release_flags != {shipping_flags}:
         errors.append(
             "release.yml: SPK_PARITY_EXTRA_FLAGS must equal the CMake shipping flags; "
             f"found {sorted(release_flags)}"

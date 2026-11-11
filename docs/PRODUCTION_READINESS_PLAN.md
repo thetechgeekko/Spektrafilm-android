@@ -99,8 +99,7 @@ reported `PT_LOAD` alignment `0x4000`.
 
 This is local mechanical evidence, not a production signature or a live GitHub
 publication. The real release remains fail-closed until the protected Environment
-supplies four signing secrets, `RELEASE_CERT_SHA256`, and
-`RELEASE_GITHUB_TOKEN` (Administration read + Contents write), repository
+supplies four signing secrets and `RELEASE_CERT_SHA256`, repository
 immutable releases are enabled, and the stable-tag ruleset is active. The LibRaw
 distribution route was elected LGPL-2.1-only on 2026-09-14 (§1.2).
 

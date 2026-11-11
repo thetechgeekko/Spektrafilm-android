@@ -35,7 +35,7 @@ is not wired in.
 
 Runs only on manual dispatch (Actions → CI → Run workflow, or
 `gh workflow run ci.yml --ref <branch>`). Use it for risky native, LibRaw or
-release-path changes, and on the exact commit before every `v*` tag. Nine jobs:
+release-path changes. A green run on the exact `main` commit is required before `release.yml` will start. Nine jobs:
 
 | Job | What it gates |
 |-----|---------------|
@@ -47,7 +47,7 @@ release-path changes, and on the exact commit before every `v*` tag. Nine jobs:
 | **python-lint** | The parity harness, LibRaw compliance tools, release-policy tools, documentation consistency checker, and offline Wayfinder frontier tests byte-compile; deterministic bundle/relink, app-SPDX, exact gate-attestation, immutable-publisher, workflow-structure, repository-fact, common Markdown link/image, preset-inventory, and ticket-routing tests pass. |
 | **android** | JDK 21. Runs debug JVM unit tests for `:app`, `:lib:libraw`, `:engine:spektra-core`, `:lib:pngwriter`, and `:lib:tiffwriter`, then `:app:lint` (a hard gate — `abortOnError = true`, no baseline since #298), assembles the debug APK with the NDK-built `.so` for all 3 ABIs, and verifies the bundled app GPL/NOTICE plus the three pinned LibRaw legal assets. It extracts the generated source/relink bundle and performs a real NDK 27 x86_64 recipient build, checking SONAME, JNI/recipient marker exports, and every `PT_LOAD` alignment. Finally it runs the APK **16 KB-page gate** (`zipalign -c -P 16 4` plus `readelf -lW`). It uploads the app APK and standalone engine boundary Android-test APK as separate exact artifacts. |
 | **android-emulator** | Required on every `ci.yml` run. A single pinned emulator action installs the standalone engine Android-test APK on the same API 35 x86_64 `google_apis` route used by release, runs the actual `EngineBoundaryInstrumentation` JNI bridge suite, and requires both `ENGINE_BOUNDARY_INSTRUMENTATION: PASS` and `INSTRUMENTATION_CODE: -1`. It then installs/launches the app and rejects fatal Java/JNI/native failures. |
-| **export-benchmark** | Release preflight. Builds the R8-minified release candidate and its instrumentation APKs, runs `tools/r8_check/check_release_dex.sh` on the shrunk dex, debug-signs them and runs the same `tools/ci/release_device_smoke.sh` the release runs after production signing (same API 35 emulator options). A missing keep rule therefore fails here, before a `v*` tag exists. It then boots a second emulator for the #177 export benchmark, uploaded as a trend artifact that is never gated. |
+| **export-benchmark** | Release preflight. Builds the R8-minified release candidate and its instrumentation APKs, runs `tools/r8_check/check_release_dex.sh` on the shrunk dex, debug-signs them and runs the same `tools/ci/release_device_smoke.sh` the release runs after production signing (same API 35 emulator options), so a missing keep rule fails here. It then boots a second emulator for the #177 export benchmark, uploaded as a trend artifact that is never gated. |
 
 `bash tools/release/run_native_safety.sh --list` prints the locked eight
 ASan+UBSan plus six TSan inventory. Running it without arguments compiles and
@@ -56,10 +56,11 @@ native-safety command bodies cannot drift independently.
 
 ## `release.yml`
 
-Fires on a stable `vMAJOR.MINOR.PATCH` tag push with no leading-zero components
-(or manual dispatch with an existing stable tag). A push-triggered run binds the
-resolved tag to the event commit; manual
-dispatch resolves the named tag. It qualifies pinned LibRaw in serial/OpenMP
+One button: manual dispatch on `main` with a new stable `vMAJOR.MINOR.PATCH`
+version (no leading-zero components). `tools/release/resolve_release.sh` refuses
+in seconds unless the ref is `main`, the version's tag does not exist yet, and
+`ci.yml` succeeded on that exact commit. No tag is pushed before or during the
+run. It qualifies pinned LibRaw in serial/OpenMP
 sanitizer, TSan, and fuzz gates. A separate job with no signing secrets verifies
 the Gradle wrapper/distribution, matches the tag to source `versionName`, builds
 the R8-minified APK, its release-targeted app instrumentation APK, and the
@@ -69,9 +70,9 @@ qualification calls CI's same committed fourteen-suite ASan+UBSan/TSan runner fo
 JNI safety helpers, `tc_lut` cache bounds/lifetime/concurrency, fork/join exception
 containment, bounded JSON/NPY parsing, the synchronized asset-backed engine C
 cancellation race, and PNG/TIFF writer gates on
-the exact tag commit before candidate build/signing. It makes no actual-JNI ASan
+the exact commit before candidate build/signing. It makes no actual-JNI ASan
 claim.
-Two parallel qualifier jobs rerun the exact engine suite at `-O2` and at the shipping flags (each emits a run ID/attempt/source receipt the candidate job checks); the candidate job runs release JVM tests for the app and all four native-backed modules, and release lint,
+That job takes both exact engine parity legs from the required green `ci.yml` run on the same commit (its run ID goes into provenance), then runs release JVM tests for the app and all four native-backed modules, and release lint,
 R8/JNI checks, and 16 KiB ZIP/ELF checks. A fixed gate attestation binds those
 results, the exact commit/version, run ID/attempt, and all three APK hashes. The
 service artifact digest and checked manifest bind that attestation together with
@@ -98,24 +99,22 @@ compliance verifier uses `--require-resolved`;
 `UNRESOLVED`, an unsupported route, source/patch drift, or a missing notice/bundle
 component stops publication.
 
-The stdlib publisher requires repository immutable releases to be enabled. New
-releases remain drafts until the exact numeric release/asset IDs, complete remote
-inventory, and downloaded bytes have been verified and the tag has been checked
-again. Existing releases pass only when already immutable and byte-identical.
-Recovery may delete only the run-owned draft; it never deletes a published or
-foreign release. The first protected job, `check-publish-token`, runs
-`tools/release/check_release_token.sh` before the candidate build so an expired
-or under-scoped token fails in a minute (it needs its own `release-signing`
-approval). Publication uses the protected Environment secret
-`RELEASE_GITHUB_TOKEN`, a fine-grained PAT or GitHub App token with repository
-Administration (read) and Contents (write); a missing/under-scoped token fails
-closed. A successful run publishes the APK, both SPDX documents, LibRaw
-source/relink ZIP, seven-lock archive, R8 mapping, full native symbols, runtime
-classpath, engine boundary APK/transcript, provenance, and checksums.
+`tools/release/stage_draft_release.sh` then stages the APK and the LibRaw
+source/relink ZIP on a **draft** Release with the built-in `GITHUB_TOKEN`
+(`contents: write` on the protected job; no personal token exists to expire),
+reads it back by numeric ID, and requires exactly those names with GitHub
+digests equal to the local signed files. It refuses an already published
+version, deletes its own draft on failure, and never publishes. The maintainer
+publishes the draft, which creates the tag on the built commit. Between jobs
+`tools/release/check_tag_state.sh` fails the run if the tag appears on any other
+commit. The full evidence set (SPDX documents, seven-lock archive, R8 mapping,
+native symbols, runtime classpath, engine boundary APK/transcript, provenance,
+checksums) stays in the signed workflow artifact for 90 days.
 Release uses JDK 21; NDK r28c (28.2.13676358), CMake 3.22.1, and build-tools 36.0.0 match CI.
 Repository administrators must additionally protect `refs/tags/v*` with a
-ruleset that forbids updates and deletion, enable immutable releases, and protect
-the `release-signing` Environment with maintainer approval.
+ruleset that forbids updates and deletion (creation stays allowed so Publish
+can create the tag), enable immutable releases, and protect the
+`release-signing` Environment with maintainer approval.
 
 ## `r8-smoke.yml` (added 2026-08-26)
 
@@ -125,16 +124,3 @@ keystore (no production secrets), runs the same 16 KB-page checks as `ci.yml`, a
 as `Spektrafilm-r8-smoke-apk`. Purpose: the CI `android` job builds debug (minify off), so a wrong
 R8 keep-rule surfaces only at runtime — download this artifact and smoke-test it on a device
 **before** tagging a release. See `docs/RELEASE_CHECKLIST.md`.
-
-## `release-token-check.yml` (added 2026-09-15)
-
-Manual `workflow_dispatch` only. Runs under the `release-signing` Environment and exercises
-`RELEASE_GITHUB_TOKEN` through `tools/release/check_release_token.sh` (the same script
-`release.yml` runs first) exactly the way `tools/release/github_release.py` does — `GET
-/immutable-releases` (Administration read), create a **draft** release against the current
-commit (Contents write + Workflows write, because the commit touches `.github/workflows/`), then
-delete it. Finishes in under a minute. Purpose: `release.yml` only reaches that token ~50 minutes
-in, and `34882197355/1` failed there with `HTTP 403: Resource not accessible by personal access
-token` after every other gate had passed, and v1.0.0 run `42975413550` failed there with
-`HTTP 401: Bad credentials` (expired token). Dispatch it after rotating the token and before pushing
-a `v*` tag.

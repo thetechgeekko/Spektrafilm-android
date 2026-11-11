@@ -15,13 +15,15 @@
 > [#171](https://github.com/thetechgeekko/Spektrafilm-android/issues/171). APK/AAB signatures, ZIP
 > layout, and device splits can differ and must never be described as byte-identical containers.
 
-Releases are **automated**. Pushing a stable `vMAJOR.MINOR.PATCH` tag (no
-prerelease/build suffixes or leading-zero components) triggers
-`.github/workflows/release.yml`, which resolves one immutable commit, qualifies
-the pinned LibRaw dependency, then builds and publishes a production-signed APK
-plus verified source/relink, SPDX, dependency-lock, mapping, native-symbol,
-runtime-classpath, provenance, and checksum artifacts. Signing and publication
-are available only through the protected `release-signing` Environment. **APKs
+Releases are **one button**. Running **Actions → Release** on `main` with a new
+stable `vMAJOR.MINOR.PATCH` version (no prerelease/build suffixes or
+leading-zero components) checks that full CI passed on that commit, qualifies
+the pinned LibRaw dependency, builds, signs and device-tests a production-signed
+APK, and stages it with the verified LibRaw source/relink ZIP as a draft
+Release; SPDX, dependency-lock, mapping, native-symbol, runtime-classpath,
+provenance and checksum artifacts stay in the signed workflow artifact. You
+publish the draft, which creates the tag. Signing is available only through the
+protected `release-signing` Environment. **APKs
 are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
@@ -82,29 +84,39 @@ evidence.
 
 ## 1. How a release happens (the automated flow)
 
-`.github/workflows/release.yml` fires on:
+**The short version.** Bump the version, merge, run full CI on main, then press
+one button:
 
-- a pushed tag matching `v*` (e.g. `v0.7.0`), or
-- a manual `workflow_dispatch` with an existing tag name as input.
+1. Merge the version bump (`versionName`/`versionCode`, `CHANGELOG.md`) to `main`.
+2. Actions -> **CI** -> Run workflow on `main`. Wait for green (about 70 min).
+3. Actions -> **Release** -> Run workflow on `main`, version `vX.Y.Z`.
+4. Approve the `release-signing` deployment when it asks (once).
+5. Open the draft under Releases, paste the notes, press **Publish**. Publishing
+   creates tag `vX.Y.Z` on the built commit.
+
+Nothing is tagged until you press Publish, so a failed run never leaves a tag
+to delete: fix, merge, and run again. There is no personal token: the draft is
+created with the workflow's built-in `GITHUB_TOKEN`.
+
+`.github/workflows/release.yml` runs only on manual `workflow_dispatch` from
+`main`, with the new version as input.
 
 The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
 `sign-and-publish` chain then:
 
-1. Validates the tag format, resolves its peeled commit SHA, binds a tag-push run
-   to the event commit, and checks out that exact SHA.
+1. Requires `main`, a stable `vMAJOR.MINOR.PATCH` version whose tag does not
+   exist yet, and a successful full `ci.yml` run on this exact commit
+   (`tools/release/resolve_release.sh`). It fails in seconds otherwise.
 2. Verifies the official LibRaw archive plus all hashed patches; runs serial and
    OpenMP ASan/UBSan, serial TSan, and bounded public-seam fuzz gates.
 3. In a job with no Environment and no signing secrets, verifies the official
    Gradle wrapper JAR and distribution hashes, installs **NDK `28.2.13676358`,
    CMake `3.22.1`, build-tools `36.0.0`**, and checks that the tag exactly matches
    the literal app `versionName`.
-4. Runs the engine parity suite at `-O2` and at the shipping
-   `-O3 -ffast-math -fno-finite-math-only` flags in two parallel qualifier jobs
-   (run ID/attempt/source receipts, like LibRaw), then release JVM tests,
-   LibRaw JVM tests, and `:app:lintRelease` in the candidate job. A first
-   protected job, `check-publish-token`, proves `RELEASE_GITHUB_TOKEN` before any
-   of this, so that Environment is approved twice per release: once at the start
-   (token check, under a minute) and once for signing.
+4. Accepts both exact engine parity legs (`-O2` and the shipping
+   `-O3 -ffast-math -fno-finite-math-only` flags) from that green `ci.yml` run on
+   the same commit and records its run ID in provenance, then runs release JVM
+   tests, LibRaw JVM tests, and `:app:lintRelease`.
 5. Builds an **unsigned**, R8-minified app APK and a release-targeted custom
    instrumentation APK. It verifies package/version/runner identity, R8's
    name-based JNI members, the AndroidTest APK's exact target-DEX ABI (classes,
@@ -127,7 +139,8 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
    artifact database ID and service-computed digest. Only then enters the
    protected `release-signing` Environment, downloads by that exact ID, verifies
    its digest/inventory/manifest/attestation, recomputes both SPDX documents and
-   all lock bytes, and rechecks the tag. No Gradle task runs in the protected job.
+   all lock bytes, and checks that nobody created the version tag on another
+   commit. No Gradle task runs in the protected job.
 9. Aligns and production-signs the exact app and instrumentation APKs with pinned
    build-tools `36.0.0`. The key exists for that step only; an `if: always()` step
    proves it and any untracked keystore are gone before certificate verification.
@@ -143,45 +156,35 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
     release gates. That full set is kept in the signed workflow artifact (90
     days); only the APK and the LibRaw source/relink ZIP (LGPL-2.1 section 6) go
     on the public Release, so users see one obvious download.
-12. The publisher first requires repository immutable releases to be enabled. A
-    new Release stays draft while every operation is bound to numeric release and
-    asset IDs and all downloaded remote bytes are verified. It publishes only
-    after a final tag check. A rerun accepts only an already immutable,
-    byte-identical Release. Recovery may delete only the exact run-owned draft;
-    it never deletes published or foreign releases.
+12. `tools/release/stage_draft_release.sh` creates a **draft** Release for the
+    version on the built commit with the built-in `GITHUB_TOKEN`, uploads the two
+    public files, and reads the draft back by numeric ID: exactly those names,
+    each with GitHub's SHA-256 digest equal to the local signed file. It refuses
+    if that version is already published and deletes its own draft on failure.
+    It never publishes. The maintainer's **Publish** creates the tag, and
+    repository immutable releases lock tag and assets from then on.
 
-`release.yml` therefore reruns the candidate-critical gates on the exact bytes it
-publishes. Standing CI must still be green before tagging, but it is not accepted
-as a substitute for an absent, failed, stale-run, or stale-attempt release gate.
+`release.yml` builds, signs and device-tests the exact bytes it stages. Host-only
+evidence that does not depend on those bytes (both parity legs) comes from the
+required green `ci.yml` run on the same commit; LibRaw and native safety are
+still requalified in the run.
 The LibRaw qualifier emits the current run ID/attempt/source SHA and the candidate
 job rejects a receipt from any earlier attempt. After any failed release job, use
 **Re-run all jobs**; a partial "re-run failed jobs" intentionally fails closed.
 
 ---
 
-## 2. Pre-tag checklist
+## 2. Pre-release checklist
 
-**Preflight first.** A `v*` tag cannot be moved or deleted while the
-`release-tags-immutable` ruleset is active, so anything that fails after tagging
-costs a ruleset toggle, a tag delete and a new two-hour run. Every v1.0.0 failure
-was findable before the tag. Do these on the exact commit you will tag, in order:
-
-- [ ] Dispatch the full `ci.yml` on that commit and wait for every job to pass.
-  Its `export-benchmark` job builds the R8 release candidate, scans the shrunk
-  dex, and runs the same `tools/ci/release_device_smoke.sh` as the release (debug
-  key). Before this, that smoke first ran after signing (run 42938059021).
-- [ ] Dispatch **Release token check** and approve it. It proves
-  `RELEASE_GITHUB_TOKEN` can still read immutable-release settings and create a
-  draft release. Fine-grained tokens expire; run 42975413550 signed and smoke-tested
-  v1.0.0, then failed its final upload with HTTP 401 "Bad credentials". Note the
-  token's expiry date when you rotate it.
-- [ ] On the machine that pushes the tag, drop stale local tags before pushing:
-  `git tag -d vX.Y.Z 2>/dev/null; git fetch origin --prune --prune-tags`, then
-  create the annotated tag and push only that ref (`git push origin vX.Y.Z`,
-  never `--tags`).
+**Before pressing Release.** The Release run refuses to start without green
+full CI on the commit, so run `ci.yml` on `main` first. Its `export-benchmark`
+job builds the R8 release candidate, scans the shrunk dex, and runs the same
+`tools/ci/release_device_smoke.sh` as the release (debug key), so an R8 keep-rule
+gap fails there, not after signing (v1.0.0 run 42938059021).
 
 - [ ] Confirm a repository ruleset covers `refs/tags/v*` and forbids tag updates
-  and deletion. Workflow SHA rechecks detect movement while a run is active;
+  and deletion (creation stays allowed, so Publish can create the tag). The
+  workflow checks between jobs that nobody created the tag on another commit;
   the ruleset keeps the published tag immutable afterward.
 - [ ] Bump `versionCode` and `versionName` in `app/build.gradle.kts` (currently `15` / `"1.0.0"`).
 - [ ] Update `CHANGELOG.md` for the new version.
@@ -245,18 +248,15 @@ was findable before the tag. Do these on the exact commit you will tag, in order
 
 ## 3. Cutting the release
 
-Tag and push from a machine with normal GitHub access:
-
-```bash
-git tag -a v0.7.0 -m "Spektrafilm v0.7.0"
-git push origin v0.7.0
-```
-
-(Or trigger `release.yml` manually via **Actions → Release → Run workflow** with the tag name.)
+Do not push a tag. Run **Actions → Release → Run workflow** on `main` with the
+version (e.g. `v0.7.0`) and approve `release-signing` when asked.
 
 Expect the unsigned-candidate and protected signing jobs to assemble, gate,
-sign, device-verify, and publish `Spektrafilm-v0.7.0.apk` and the deterministic
-LibRaw source/relink ZIP to the Release for that tag. The SPDX documents,
+sign, device-verify, and stage `Spektrafilm-v0.7.0.apk` and the deterministic
+LibRaw source/relink ZIP on a draft Release (the run summary links it). Paste
+the notes into the draft and press **Publish**; that creates tag `v0.7.0` on the
+built commit. If anything fails, nothing was tagged: fix it on `main`, run CI,
+and press Release again (delete a leftover draft first). The SPDX documents,
 seven-lock archive, R8 mapping, full native symbols, release runtime classpath,
 provenance, and `SHA256SUMS` stay in the run's signed workflow artifact.
 
@@ -297,9 +297,10 @@ Environment secrets:
 - `SIGNING_KEY_ALIAS` — keystore key alias.
 - `SIGNING_KEYSTORE_PASSWORD` — store password.
 - `SIGNING_KEY_PASSWORD` — key password.
-- `RELEASE_GITHUB_TOKEN` — a fine-grained PAT or GitHub App token scoped only
-  to this repository with **Administration: read** (to prove immutable releases
-  are enabled) and **Contents: write** (to create/upload/publish the Release).
+
+No publishing token is needed: the draft is staged with the workflow's
+built-in `GITHUB_TOKEN` (`contents: write` on the protected job only). An old
+`RELEASE_GITHUB_TOKEN` secret is unused and can be deleted.
 
 Configure this Environment variable:
 
@@ -307,10 +308,10 @@ Configure this Environment variable:
   APK signing certificate (colons and case are normalized by the workflow).
 
 Also enable repository immutable releases and protect `refs/tags/v*` against
-updates/deletion. If any signing input, publisher token, repository setting, or
-certificate fingerprint is empty/invalid, the job fails closed. The ordinary
-workflow `GITHUB_TOKEN` is deliberately not used for release publication because
-it cannot be assumed to have repository Administration read permission.
+updates/deletion. If any signing input or
+certificate fingerprint is empty/invalid, the job fails closed. The built-in
+token cannot read the immutable-releases setting, so confirm it in the
+repository settings once; the published release page shows the lock.
 
 ---
 
@@ -333,9 +334,9 @@ it cannot be assumed to have repository Administration read permission.
 
 - `.github/workflows/release.yml` (exact candidate gates and attestation,
   run/attempt/artifact-ID binding, protected signing and cleanup, API 35
-  instrumentation, provenance, immutable tag/release verification, publication).
-- `tools/release/` (deterministic app SPDX, fixed gate attestation, immutable
-  numeric-ID publisher, and structural regression tests).
+  instrumentation, provenance, tag-state checks, draft staging).
+- `tools/release/` (deterministic app SPDX, fixed gate attestation, release
+  preconditions, tag-state check, draft stager, and structural regression tests).
 - `.github/workflows/ci.yml` (standing gates, including LibRaw and 16 KB
   `zipalign -P 16` plus `readelf -lW` checks).
 - `app/build.gradle.kts:12-22` (optional local release keystore; absent means
